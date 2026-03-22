@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_llama/flutter_llama.dart';
 
 void main() {
   runApp(const FridayApp());
@@ -32,18 +36,114 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
-  final List<Map<String, String>> _messages = [
-    {'role': 'friday', 'text': 'Hello. I am Friday. How can I assist you?'},
-  ];
+  final List<Map<String, String>> _messages = [];
+  bool _isLoading = false;
+  bool _modelReady = false;
+  String _statusText = 'Initializing Friday...';
+  double _downloadProgress = 0;
+  FlutterLlama? _llama;
 
-  void _sendMessage() {
+  @override
+  void initState() {
+    super.initState();
+    _initFriday();
+  }
+
+  Future<void> _initFriday() async {
+    setState(() => _isLoading = true);
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final modelPath = '${dir.path}/braindler.gguf';
+      final file = File(modelPath);
+
+      if (!await file.exists()) {
+        setState(() => _statusText = 'Downloading AI model (88MB)...\nThis only happens once.');
+        const url = 'https://huggingface.co/nativemind/braindler-GGUF/resolve/main/braindler-q4_k_s.gguf';
+        final client = http.Client();
+        final request = http.Request('GET', Uri.parse(url));
+        final response = await client.send(request);
+        final totalBytes = response.contentLength ?? 0;
+        final sink = file.openWrite();
+        int received = 0;
+        await response.stream.listen((chunk) {
+          sink.add(chunk);
+          received += chunk.length;
+          if (totalBytes > 0) {
+            setState(() => _downloadProgress = received / totalBytes);
+          }
+        }).asFuture();
+        await sink.close();
+        client.close();
+        setState(() => _statusText = 'Download complete! Loading model...');
+      } else {
+        setState(() => _statusText = 'Loading AI model...');
+      }
+
+      final llama = FlutterLlama();
+      await llama.loadModel(
+        modelPath: modelPath,
+        nThreads: 4,
+        nGpuLayers: 0,
+        contextSize: 2048,
+        batchSize: 512,
+        useGpu: false,
+        verbose: false,
+      );
+      _llama = llama;
+
+      setState(() {
+        _modelReady = true;
+        _isLoading = false;
+        _messages.add({
+          'role': 'friday',
+          'text': 'Hello. I am Friday, your offline AI assistant. How can I help you?'
+        });
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _statusText = 'Error: $e';
+        _messages.add({'role': 'friday', 'text': 'Error: $e'});
+      });
+    }
+  }
+
+  Future<void> _sendMessage() async {
     final text = _controller.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || !_modelReady || _isLoading || _llama == null) return;
     setState(() {
       _messages.add({'role': 'user', 'text': text});
-      _messages.add({'role': 'friday', 'text': 'Processing... (AI coming soon)'});
+      _isLoading = true;
+      _messages.add({'role': 'friday', 'text': ''});
     });
     _controller.clear();
+
+    try {
+      final params = GenerationParams(
+        prompt: '<|system|>You are Friday, a helpful personal AI assistant.</s><|user|>$text</s><|assistant|>',
+        maxTokens: 512,
+      );
+
+      String response = '';
+      await for (final token in _llama!.generateStream(params)) {
+        response += token;
+        setState(() {
+          _messages[_messages.length - 1] = {'role': 'friday', 'text': response};
+        });
+      }
+      setState(() => _isLoading = false);
+    } catch (e) {
+      setState(() {
+        _messages[_messages.length - 1] = {'role': 'friday', 'text': 'Error: $e'};
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _llama?.unloadModel();
+    super.dispose();
   }
 
   @override
@@ -62,10 +162,31 @@ class _ChatScreenState extends State<ChatScreen> {
             )),
           ],
         ),
-        centerTitle: false,
       ),
       body: Column(
         children: [
+          if (_isLoading && !_modelReady)
+            Column(
+              children: [
+                LinearProgressIndicator(
+                  value: _downloadProgress > 0 ? _downloadProgress : null,
+                  color: const Color(0xFF00D4FF),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    _statusText,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ),
+                if (_downloadProgress > 0)
+                  Text(
+                    '${(_downloadProgress * 100).toStringAsFixed(1)}%',
+                    style: const TextStyle(color: Color(0xFF00D4FF), fontSize: 18),
+                  ),
+              ],
+            ),
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
@@ -78,7 +199,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: Container(
                     margin: const EdgeInsets.symmetric(vertical: 6),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width * 0.75,
+                    ),
                     decoration: BoxDecoration(
                       color: isUser ? const Color(0xFF00D4FF) : const Color(0xFF1A1A1A),
                       borderRadius: BorderRadius.circular(18),
@@ -95,6 +218,11 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
+          if (_isLoading && _modelReady)
+            const Padding(
+              padding: EdgeInsets.all(8),
+              child: Text('Friday is thinking...', style: TextStyle(color: Colors.grey)),
+            ),
           Container(
             padding: const EdgeInsets.all(12),
             color: const Color(0xFF111111),
@@ -105,7 +233,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     controller: _controller,
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: 'Ask Friday anything...',
+                      hintText: _modelReady ? 'Ask Friday anything...' : 'Loading AI...',
                       hintStyle: const TextStyle(color: Colors.grey),
                       filled: true,
                       fillColor: const Color(0xFF1A1A1A),
