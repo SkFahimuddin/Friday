@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'dart:async';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:llama_flutter_android/llama_flutter_android.dart';
+import 'location_service.dart';
+import 'database.dart';
 
 void main() {
   runApp(const FridayApp());
@@ -42,11 +45,26 @@ class _ChatScreenState extends State<ChatScreen> {
   String _statusText = 'Loading AI model...';
   double _downloadProgress = 0;
   final LlamaController _llama = LlamaController();
+  Timer? _locationTimer;
 
   @override
   void initState() {
     super.initState();
     _initFriday();
+    _initLocation();
+  }
+
+  Future<void> _initLocation() async {
+    final hasPermission = await LocationService.requestPermission();
+    if (hasPermission) {
+      LocationService.startTracking();
+      // Log location every 5 minutes
+      _locationTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+        LocationService.logCurrentLocation();
+      });
+      // Log immediately on start
+      LocationService.logCurrentLocation();
+    }
   }
 
   Future<void> _initFriday() async {
@@ -101,6 +119,16 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<String> _buildContext(String userMessage) async {
+    final locationSummary = await LocationService.getLocationSummary();
+    return '''You are Friday, a helpful personal AI assistant.
+
+[LOCATION DATA]
+$locationSummary
+
+User: $userMessage''';
+  }
+
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
     if (text.isEmpty || !_modelReady || _isLoading) return;
@@ -112,10 +140,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _controller.clear();
 
     try {
-      final prompt = '<|system|>You are Friday, a helpful personal AI assistant.</s><|user|>$text</s><|assistant|>';
+      final prompt = await _buildContext(text);
+      final fullPrompt = '<|system|>$prompt</s><|user|>$text</s><|assistant|>';
       String response = '';
       await for (final token in _llama.generate(
-        prompt: prompt,
+        prompt: fullPrompt,
         maxTokens: 256,
         temperature: 0.7,
         topP: 0.9,
@@ -138,6 +167,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _llama.dispose();
+    _locationTimer?.cancel();
     super.dispose();
   }
 
@@ -157,6 +187,30 @@ class _ChatScreenState extends State<ChatScreen> {
             )),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.location_on, color: Color(0xFF00D4FF)),
+            onPressed: () async {
+              final summary = await LocationService.getLocationSummary();
+              if (mounted) {
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    backgroundColor: const Color(0xFF1A1A1A),
+                    title: const Text('Location Log', style: TextStyle(color: Color(0xFF00D4FF))),
+                    content: Text(summary, style: const TextStyle(color: Colors.white)),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Close', style: TextStyle(color: Color(0xFF00D4FF))),
+                      )
+                    ],
+                  ),
+                );
+              }
+            },
+          )
+        ],
       ),
       body: Column(
         children: [
