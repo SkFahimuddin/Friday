@@ -39,6 +39,7 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   final List<Map<String, String>> _messages = [];
   bool _isLoading = false;
   bool _modelReady = false;
@@ -58,11 +59,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final hasPermission = await LocationService.requestPermission();
     if (hasPermission) {
       LocationService.startTracking();
-      // Log location every 5 minutes
       _locationTimer = Timer.periodic(const Duration(minutes: 5), (_) {
         LocationService.logCurrentLocation();
       });
-      // Log immediately on start
       LocationService.logCurrentLocation();
     }
   }
@@ -95,7 +94,6 @@ class _ChatScreenState extends State<ChatScreen> {
       }
 
       setState(() => _statusText = 'Loading AI into memory...');
-
       await _llama.loadModel(
         modelPath: modelPath,
         threads: 4,
@@ -119,29 +117,38 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<String> _buildContext(String userMessage) async {
-    final locationSummary = await LocationService.getLocationSummary();
-    return '''You are Friday, a helpful personal AI assistant.
-
-[LOCATION DATA]
-$locationSummary
-
-User: $userMessage''';
+  void _scrollToBottom() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
     if (text.isEmpty || !_modelReady || _isLoading) return;
+
+    // Save user message to DB
+    await FridayDatabase.saveConversation(role: 'user', message: text);
+
     setState(() {
       _messages.add({'role': 'user', 'text': text});
       _isLoading = true;
       _messages.add({'role': 'friday', 'text': ''});
     });
     _controller.clear();
+    _scrollToBottom();
 
     try {
-      final prompt = await _buildContext(text);
-      final fullPrompt = '<|system|>$prompt</s><|user|>$text</s><|assistant|>';
+      // Build memory context
+      final memoryContext = await FridayDatabase.buildMemoryContext();
+      final fullPrompt = '<|system|>You are Friday, a helpful personal AI assistant. Here is context about the user:\n\n$memoryContext</s><|user|>$text</s><|assistant|>';
+
       String response = '';
       await for (final token in _llama.generate(
         prompt: fullPrompt,
@@ -154,7 +161,11 @@ User: $userMessage''';
         setState(() {
           _messages[_messages.length - 1] = {'role': 'friday', 'text': response};
         });
+        _scrollToBottom();
       }
+
+      // Save Friday's response to DB
+      await FridayDatabase.saveConversation(role: 'friday', message: response.trim());
       setState(() => _isLoading = false);
     } catch (e) {
       setState(() {
@@ -168,6 +179,7 @@ User: $userMessage''';
   void dispose() {
     _llama.dispose();
     _locationTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -209,7 +221,49 @@ User: $userMessage''';
                 );
               }
             },
-          )
+          ),
+          IconButton(
+            icon: const Icon(Icons.note_add, color: Color(0xFF00D4FF)),
+            onPressed: () {
+              final noteController = TextEditingController();
+              showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  backgroundColor: const Color(0xFF1A1A1A),
+                  title: const Text('Add Memory', style: TextStyle(color: Color(0xFF00D4FF))),
+                  content: TextField(
+                    controller: noteController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. I had coffee at 9am...',
+                      hintStyle: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        if (noteController.text.isNotEmpty) {
+                          await FridayDatabase.saveMemory(
+                            type: 'note',
+                            content: noteController.text,
+                          );
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Memory saved!')),
+                          );
+                        }
+                      },
+                      child: const Text('Save', style: TextStyle(color: Color(0xFF00D4FF))),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ],
       ),
       body: Column(
@@ -237,6 +291,7 @@ User: $userMessage''';
             ),
           Expanded(
             child: ListView.builder(
+              controller: _scrollController,
               padding: const EdgeInsets.all(16),
               itemCount: _messages.length,
               itemBuilder: (context, index) {
@@ -253,10 +308,19 @@ User: $userMessage''';
                       color: isUser ? const Color(0xFF00D4FF) : const Color(0xFF1A1A1A),
                       borderRadius: BorderRadius.circular(18),
                     ),
-                    child: Text(msg['text']!,
-                        style: TextStyle(
-                            color: isUser ? Colors.black : Colors.white,
-                            fontSize: 15)),
+                    child: msg['text']!.isEmpty && !isUser
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Color(0xFF00D4FF),
+                            ),
+                          )
+                        : Text(msg['text']!,
+                            style: TextStyle(
+                                color: isUser ? Colors.black : Colors.white,
+                                fontSize: 15)),
                   ),
                 );
               },
