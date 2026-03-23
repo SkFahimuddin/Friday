@@ -33,7 +33,11 @@ dependencies:
   cupertino_icons: ^1.0.8
   path_provider: ^2.1.0
   http: ^1.2.0
+  llama_flutter_android:
+    git:
+      url: https://github.com/dragneel2074/Llama-Flutter.git
 
+      
 dev_dependencies:
   flutter_test:
     sdk: flutter
