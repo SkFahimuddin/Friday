@@ -1,4 +1,5 @@
 import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import 'database.dart';
 
 class LocationService {
@@ -26,13 +27,37 @@ class LocationService {
     );
   }
 
+  static Future<String> getAddressFromCoords(double lat, double lng) async {
+    try {
+      final placemarks = await placemarkFromCoordinates(lat, lng);
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        final parts = [
+          place.street,
+          place.subLocality,
+          place.locality,
+        ].where((p) => p != null && p.isNotEmpty).toList();
+        return parts.join(', ');
+      }
+    } catch (e) {
+      return '$lat, $lng';
+    }
+    return '$lat, $lng';
+  }
+
   static Future<void> logCurrentLocation() async {
     final position = await getCurrentLocation();
     if (position == null) return;
 
+    final address = await getAddressFromCoords(
+      position.latitude,
+      position.longitude,
+    );
+
     await FridayDatabase.saveLocation(
       latitude: position.latitude,
       longitude: position.longitude,
+      address: address,
     );
   }
 
@@ -42,10 +67,15 @@ class LocationService {
       distanceFilter: 50,
     );
 
-    Geolocator.getPositionStream(locationSettings: settings).listen((position) {
+    Geolocator.getPositionStream(locationSettings: settings).listen((position) async {
+      final address = await getAddressFromCoords(
+        position.latitude,
+        position.longitude,
+      );
       FridayDatabase.saveLocation(
         latitude: position.latitude,
         longitude: position.longitude,
+        address: address,
       );
     });
   }
@@ -57,8 +87,9 @@ class LocationService {
     final buffer = StringBuffer();
     buffer.writeln('Recent locations:');
     for (final loc in locations.take(5)) {
-      final time = loc['timestamp'].toString().substring(0, 16);
-      buffer.writeln('- $time: (${loc['latitude'].toStringAsFixed(4)}, ${loc['longitude'].toStringAsFixed(4)})');
+      final time = loc['timestamp'].toString().substring(0, 16).replaceAll('T', ' ');
+      final address = loc['address'] ?? '${loc['latitude']}, ${loc['longitude']}';
+      buffer.writeln('- $time: $address');
     }
     return buffer.toString();
   }
