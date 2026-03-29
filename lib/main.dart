@@ -96,8 +96,8 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() => _statusText = 'Loading AI into memory...');
       await _llama.loadModel(
         modelPath: modelPath,
-        threads: 4,
-        contextSize: 2048,
+        threads: 6,
+        contextSize: 512,
       );
 
       setState(() {
@@ -133,7 +133,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _controller.text.trim();
     if (text.isEmpty || !_modelReady || _isLoading) return;
 
-    // Save user message to DB
     await FridayDatabase.saveConversation(role: 'user', message: text);
 
     setState(() {
@@ -145,14 +144,12 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom();
 
     try {
-      // Build memory context
-      final memoryContext = await FridayDatabase.buildMemoryContext();
-      final fullPrompt = '<|system|>You are Friday, a helpful personal AI assistant. Here is context about the user:\n\n$memoryContext</s><|user|>$text</s><|assistant|>';
+      final fullPrompt = '<|system|>You are Friday, a helpful AI assistant. Answer concisely in 1-2 sentences.</s><|user|>$text</s><|assistant|>';
 
       String response = '';
       await for (final token in _llama.generate(
         prompt: fullPrompt,
-        maxTokens: 256,
+        maxTokens: 128,
         temperature: 0.7,
         topP: 0.9,
         topK: 40,
@@ -164,7 +161,6 @@ class _ChatScreenState extends State<ChatScreen> {
         _scrollToBottom();
       }
 
-      // Save Friday's response to DB
       await FridayDatabase.saveConversation(role: 'friday', message: response.trim());
       setState(() => _isLoading = false);
     } catch (e) {
