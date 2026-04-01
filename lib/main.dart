@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:llama_flutter_android/llama_flutter_android.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'location_service.dart';
 import 'database.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: '.env');
   runApp(const FridayApp());
 }
 
@@ -43,16 +47,36 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<Map<String, String>> _messages = [];
   bool _isLoading = false;
   bool _modelReady = false;
+  bool _isOnline = false;
   String _statusText = 'Loading AI model...';
   double _downloadProgress = 0;
   final LlamaController _llama = LlamaController();
   Timer? _locationTimer;
+  Timer? _connectivityTimer;
 
   @override
   void initState() {
     super.initState();
     _initFriday();
     _initLocation();
+    _checkConnectivity();
+    _connectivityTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _checkConnectivity();
+    });
+  }
+
+  Future<void> _checkConnectivity() async {
+    try {
+      final result = await InternetAddress.lookup('google.com');
+      final online = result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+      if (online != _isOnline) {
+        setState(() => _isOnline = online);
+      }
+    } catch (_) {
+      if (_isOnline) {
+        setState(() => _isOnline = false);
+      }
+    }
   }
 
   Future<void> _initLocation() async {
@@ -105,7 +129,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _isLoading = false;
         _messages.add({
           'role': 'friday',
-          'text': 'Hello. I am Friday, your offline AI assistant. How can I help you?'
+          'text': 'Hello. I am Friday, your personal AI assistant. How can I help you?'
         });
       });
     } catch (e) {
@@ -114,6 +138,39 @@ class _ChatScreenState extends State<ChatScreen> {
         _statusText = 'Error: $e';
         _messages.add({'role': 'friday', 'text': 'Error: $e'});
       });
+    }
+  }
+
+  Future<String> _askGroq(String userMessage) async {
+    final apiKey = dotenv.env['GROQ_API_KEY'] ?? '';
+    final response = await http.post(
+      Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $apiKey',
+      },
+      body: jsonEncode({
+        'model': 'llama-3.3-70b-versatile',
+        'messages': [
+          {
+            'role': 'system',
+            'content': 'You are Friday, a helpful personal AI assistant. Answer concisely and clearly.'
+          },
+          {
+            'role': 'user',
+            'content': userMessage,
+          }
+        ],
+        'max_tokens': 512,
+        'temperature': 0.7,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['choices'][0]['message']['content'].trim();
+    } else {
+      throw Exception('Groq error: ${response.statusCode}');
     }
   }
 
@@ -144,25 +201,33 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom();
 
     try {
-      final fullPrompt = '<|system|>You are Friday, a helpful AI assistant. Answer concisely in 1-2 sentences.</s><|user|>$text</s><|assistant|>';
-
       String response = '';
-      await for (final token in _llama.generate(
-        prompt: fullPrompt,
-        maxTokens: 128,
-        temperature: 0.7,
-        topP: 0.9,
-        topK: 40,
-      )) {
-        response += token;
+
+      if (_isOnline) {
+        response = await _askGroq(text);
         setState(() {
           _messages[_messages.length - 1] = {'role': 'friday', 'text': response};
         });
-        _scrollToBottom();
+      } else {
+        final fullPrompt = '<|system|>You are Friday, a helpful AI assistant. Answer concisely in 1-2 sentences.</s><|user|>$text</s><|assistant|>';
+        await for (final token in _llama.generate(
+          prompt: fullPrompt,
+          maxTokens: 128,
+          temperature: 0.7,
+          topP: 0.9,
+          topK: 40,
+        )) {
+          response += token;
+          setState(() {
+            _messages[_messages.length - 1] = {'role': 'friday', 'text': response};
+          });
+          _scrollToBottom();
+        }
       }
 
       await FridayDatabase.saveConversation(role: 'friday', message: response.trim());
       setState(() => _isLoading = false);
+      _scrollToBottom();
     } catch (e) {
       setState(() {
         _messages[_messages.length - 1] = {'role': 'friday', 'text': 'Error: $e'};
@@ -175,6 +240,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _llama.dispose();
     _locationTimer?.cancel();
+    _connectivityTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -184,15 +250,24 @@ class _ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFF111111),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.bolt, color: Color(0xFF00D4FF)),
-            SizedBox(width: 8),
-            Text('FRIDAY', style: TextStyle(
+            const Icon(Icons.bolt, color: Color(0xFF00D4FF)),
+            const SizedBox(width: 8),
+            const Text('FRIDAY', style: TextStyle(
               color: Color(0xFF00D4FF),
               fontWeight: FontWeight.bold,
               letterSpacing: 4,
             )),
+            const SizedBox(width: 8),
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _isOnline ? Colors.blue : Colors.white,
+              ),
+            ),
           ],
         ),
         actions: [
@@ -205,12 +280,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   context: context,
                   builder: (_) => AlertDialog(
                     backgroundColor: const Color(0xFF1A1A1A),
-                    title: const Text('Location Log', style: TextStyle(color: Color(0xFF00D4FF))),
-                    content: Text(summary, style: const TextStyle(color: Colors.white)),
+                    title: const Text('Location Log',
+                        style: TextStyle(color: Color(0xFF00D4FF))),
+                    content: Text(summary,
+                        style: const TextStyle(color: Colors.white)),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('Close', style: TextStyle(color: Color(0xFF00D4FF))),
+                        child: const Text('Close',
+                            style: TextStyle(color: Color(0xFF00D4FF))),
                       )
                     ],
                   ),
@@ -226,7 +304,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 context: context,
                 builder: (_) => AlertDialog(
                   backgroundColor: const Color(0xFF1A1A1A),
-                  title: const Text('Add Memory', style: TextStyle(color: Color(0xFF00D4FF))),
+                  title: const Text('Add Memory',
+                      style: TextStyle(color: Color(0xFF00D4FF))),
                   content: TextField(
                     controller: noteController,
                     style: const TextStyle(color: Colors.white),
@@ -238,7 +317,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                      child: const Text('Cancel',
+                          style: TextStyle(color: Colors.grey)),
                     ),
                     TextButton(
                       onPressed: () async {
@@ -253,7 +333,8 @@ class _ChatScreenState extends State<ChatScreen> {
                           );
                         }
                       },
-                      child: const Text('Save', style: TextStyle(color: Color(0xFF00D4FF))),
+                      child: const Text('Save',
+                          style: TextStyle(color: Color(0xFF00D4FF))),
                     ),
                   ],
                 ),
@@ -294,14 +375,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 final msg = _messages[index];
                 final isUser = msg['role'] == 'user';
                 return Align(
-                  alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                  alignment:
+                      isUser ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
                     margin: const EdgeInsets.symmetric(vertical: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
                     constraints: BoxConstraints(
                         maxWidth: MediaQuery.of(context).size.width * 0.75),
                     decoration: BoxDecoration(
-                      color: isUser ? const Color(0xFF00D4FF) : const Color(0xFF1A1A1A),
+                      color: isUser
+                          ? const Color(0xFF00D4FF)
+                          : const Color(0xFF1A1A1A),
                       borderRadius: BorderRadius.circular(18),
                     ),
                     child: msg['text']!.isEmpty && !isUser
@@ -323,10 +408,14 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           if (_isLoading && _modelReady)
-            const Padding(
-              padding: EdgeInsets.all(8),
-              child: Text('Friday is thinking...',
-                  style: TextStyle(color: Colors.grey)),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text(
+                _isOnline
+                    ? 'Friday is thinking...'
+                    : 'Friday is thinking...',
+                style: const TextStyle(color: Colors.grey),
+              ),
             ),
           Container(
             padding: const EdgeInsets.all(12),
@@ -338,7 +427,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     controller: _controller,
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: _modelReady ? 'Ask Friday anything...' : 'Loading AI...',
+                      hintText: _modelReady
+                          ? 'Ask Friday anything...'
+                          : 'Loading AI...',
                       hintStyle: const TextStyle(color: Colors.grey),
                       filled: true,
                       fillColor: const Color(0xFF1A1A1A),
