@@ -129,7 +129,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _isLoading = false;
         _messages.add({
           'role': 'friday',
-          'text': 'Hello. I am Friday, your personal AI assistant. How can I help you?'
+          'text': 'Hello boss. I am Friday, your personal AI assistant. How can I help you?'
         });
       });
     } catch (e) {
@@ -143,6 +143,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<String> _askGroq(String userMessage) async {
     final apiKey = dotenv.env['GROQ_API_KEY'] ?? '';
+
+    // Build personal memory context
+    final memoryContext = await FridayDatabase.buildMemoryContext();
+
     final response = await http.post(
       Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
       headers: {
@@ -154,7 +158,10 @@ class _ChatScreenState extends State<ChatScreen> {
         'messages': [
           {
             'role': 'system',
-            'content': 'You are Friday, a helpful personal AI assistant. Answer concisely and clearly.'
+            'content': '''You are Friday, a personal AI assistant. You know everything about your user from their data below. Use this context naturally in your responses. Call the user "boss". Be helpful, informal and friendly.
+
+PERSONAL DATA:
+$memoryContext'''
           },
           {
             'role': 'user',
@@ -408,13 +415,11 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           if (_isLoading && _modelReady)
-            Padding(
-              padding: const EdgeInsets.all(8),
+            const Padding(
+              padding: EdgeInsets.all(8),
               child: Text(
-                _isOnline
-                    ? 'Friday is thinking...'
-                    : 'Friday is thinking...',
-                style: const TextStyle(color: Colors.grey),
+                'Friday is thinking...',
+                style: TextStyle(color: Colors.grey),
               ),
             ),
           Container(
