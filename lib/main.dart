@@ -144,7 +144,6 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<String> _askGroq(String userMessage) async {
     final apiKey = dotenv.env['GROQ_API_KEY'] ?? '';
 
-    // Build personal memory context
     final memoryContext = await FridayDatabase.buildMemoryContext();
 
     final response = await http.post(
