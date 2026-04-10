@@ -9,10 +9,13 @@ import 'package:llama_flutter_android/llama_flutter_android.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'location_service.dart';
 import 'database.dart';
+import 'notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
+  await NotificationService.initialize();
+  await NotificationService.scheduleAllNotifications();
   runApp(const FridayApp());
 }
 
@@ -70,7 +73,8 @@ class OrbPainter extends CustomPainter {
           const Color(0xFF0044FF).withOpacity(0.12 + pulse * 0.08),
           Colors.transparent,
         ],
-      ).createShader(Rect.fromCircle(center: center, radius: baseRadius * 0.55));
+      ).createShader(
+          Rect.fromCircle(center: center, radius: baseRadius * 0.55));
     canvas.drawCircle(center, baseRadius * 0.55, glowPaint);
 
     final corePaint = Paint()
@@ -80,7 +84,8 @@ class OrbPainter extends CustomPainter {
           const Color(0xFF0088FF).withOpacity(0.6),
           const Color(0xFF00D4FF).withOpacity(0.2),
         ],
-      ).createShader(Rect.fromCircle(center: center, radius: baseRadius * 0.28));
+      ).createShader(
+          Rect.fromCircle(center: center, radius: baseRadius * 0.28));
     canvas.drawCircle(center, baseRadius * 0.28 + pulse * 3, corePaint);
 
     final linePaint = Paint()
@@ -234,7 +239,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       final file = File(modelPath);
 
       if (!await file.exists()) {
-        setState(() => _statusText = 'Downloading AI model (637MB)...\nThis only happens once.');
+        setState(() =>
+            _statusText = 'Downloading AI model (637MB)...\nThis only happens once.');
         const url =
             'https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf';
         final client = http.Client();
@@ -467,7 +473,7 @@ $memoryContext'''
             onPressed: () => Navigator.pop(context),
             child: const Text('CANCEL',
                 style: TextStyle(
-                    color: Color(0xFF00D4FFAA),
+                    color: Color(0xFF00D4FF55),
                     fontSize: 11,
                     letterSpacing: 2)),
           ),
@@ -534,8 +540,7 @@ $memoryContext'''
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Container(
-                            margin:
-                                const EdgeInsets.only(top: 6, right: 10),
+                            margin: const EdgeInsets.only(top: 6, right: 10),
                             width: 5,
                             height: 5,
                             decoration: const BoxDecoration(
@@ -578,10 +583,8 @@ $memoryContext'''
       body: SafeArea(
         child: Column(
           children: [
-            // Top bar
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -621,7 +624,6 @@ $memoryContext'''
               ),
             ),
 
-            // Loading
             if (_isLoading && !_modelReady) ...[
               LinearProgressIndicator(
                 value: _downloadProgress > 0 ? _downloadProgress : null,
@@ -638,8 +640,7 @@ $memoryContext'''
                         fontSize: 12)),
               ),
               if (_downloadProgress > 0)
-                Text(
-                    '${(_downloadProgress * 100).toStringAsFixed(1)}%',
+                Text('${(_downloadProgress * 100).toStringAsFixed(1)}%',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                         color: Color(0xFF00D4FF),
@@ -648,10 +649,8 @@ $memoryContext'''
                         fontFamily: 'monospace')),
             ],
 
-            // Orb
             AnimatedBuilder(
-              animation:
-                  Listenable.merge([_pulseAnim, _plasmaAnim]),
+              animation: Listenable.merge([_pulseAnim, _plasmaAnim]),
               builder: (_, __) => CustomPaint(
                 painter: OrbPainter(
                   pulse: _pulseAnim.value,
@@ -661,7 +660,6 @@ $memoryContext'''
               ),
             ),
 
-            // Greeting
             Text(
               _modelReady ? _getGreeting() : 'Initializing...',
               style: const TextStyle(
@@ -673,7 +671,6 @@ $memoryContext'''
 
             const SizedBox(height: 10),
 
-            // Scan line
             Container(
               width: MediaQuery.of(context).size.width * 0.5,
               height: 1,
@@ -690,17 +687,25 @@ $memoryContext'''
 
             const SizedBox(height: 10),
 
-            // Stats
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 30),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _statChip('24%', 'TRAINED'),
-                  _statChip('$_locationCount', 'LOCATIONS'),
-                  _statChip('$_messageCount', 'MEMORIES'),
-                ],
-              ),
+  mainAxisAlignment: MainAxisAlignment.center,
+  children: [
+    _actionBtn('MEMORIES', _showMemories),
+    const SizedBox(width: 8),
+    _actionBtn('LOCATIONS', _showLocations),
+    const SizedBox(width: 8),
+    _actionBtn('+ NOTE', _showNoteDialog),
+    const SizedBox(width: 8),
+    _actionBtn('TEST NOTIF', () {
+      NotificationService.sendInstantNotification(
+        title: 'FRIDAY',
+        body: 'Boss I am alive and watching you!',
+      );
+    }),
+  ],
+),
             ),
 
             const SizedBox(height: 10),
@@ -711,7 +716,6 @@ $memoryContext'''
               color: const Color(0xFF00D4FF11),
             ),
 
-            // Chat
             Expanded(
               child: ListView.builder(
                 controller: _scrollController,
@@ -750,8 +754,7 @@ $memoryContext'''
                         border: isUser
                             ? null
                             : Border.all(
-                                color: const Color(0xFF00D4FF22),
-                                width: 1),
+                                color: const Color(0xFF00D4FF22), width: 1),
                       ),
                       child: msg['text']!.isEmpty && !isUser
                           ? Row(
@@ -786,13 +789,12 @@ $memoryContext'''
               ),
             ),
 
-            // Bottom bar
             Container(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
               decoration: const BoxDecoration(
                 color: Color(0xFF080810),
-                border: Border(
-                    top: BorderSide(color: Color(0xFF00D4FF11))),
+                border:
+                    Border(top: BorderSide(color: Color(0xFF00D4FF11))),
               ),
               child: Column(
                 children: [
@@ -804,8 +806,7 @@ $memoryContext'''
                             color: const Color(0xFF0D0D1A),
                             borderRadius: BorderRadius.circular(24),
                             border: Border.all(
-                                color: const Color(0xFF00D4FF33),
-                                width: 1),
+                                color: const Color(0xFF00D4FF33), width: 1),
                           ),
                           child: TextField(
                             controller: _controller,
@@ -822,9 +823,8 @@ $memoryContext'''
                                   fontFamily: 'monospace',
                                   fontSize: 13),
                               border: InputBorder.none,
-                              contentPadding:
-                                  const EdgeInsets.symmetric(
-                                      horizontal: 18, vertical: 12),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 18, vertical: 12),
                             ),
                             onSubmitted: (_) => _sendMessage(),
                           ),
@@ -884,7 +884,7 @@ $memoryContext'''
                   fontFamily: 'monospace')),
           Text(label,
               style: const TextStyle(
-                  color: Color(0xFF00D4FF55),
+                  color: Color(0xFF00D4FFAA),
                   fontSize: 9,
                   letterSpacing: 1,
                   fontFamily: 'monospace')),
@@ -897,8 +897,7 @@ $memoryContext'''
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
           color: const Color(0xFF0D0D1A),
           borderRadius: BorderRadius.circular(20),
