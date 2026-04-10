@@ -467,7 +467,7 @@ $memoryContext'''
             onPressed: () => Navigator.pop(context),
             child: const Text('CANCEL',
                 style: TextStyle(
-                    color: Color(0xFF00D4FF55),
+                    color: Color(0xFF00D4FFAA),
                     fontSize: 11,
                     letterSpacing: 2)),
           ),
@@ -906,7 +906,7 @@ $memoryContext'''
         ),
         child: Text(label,
             style: const TextStyle(
-                color: Color(0xFF00D4FF77),
+                color: Color(0xFF00D4FF),
                 fontSize: 10,
                 letterSpacing: 1,
                 fontFamily: 'monospace')),
