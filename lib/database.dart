@@ -65,7 +65,6 @@ class FridayDatabase {
     );
   }
 
-  // Save location
   static Future<void> saveLocation({
     required double latitude,
     required double longitude,
@@ -80,7 +79,6 @@ class FridayDatabase {
     });
   }
 
-  // Get last 20 locations
   static Future<List<Map<String, dynamic>>> getRecentLocations() async {
     final db = await database;
     return await db.query(
@@ -90,7 +88,6 @@ class FridayDatabase {
     );
   }
 
-  // Save a memory
   static Future<void> saveMemory({
     required String type,
     required String content,
@@ -103,7 +100,6 @@ class FridayDatabase {
     });
   }
 
-  // Get recent memories
   static Future<List<Map<String, dynamic>>> getRecentMemories() async {
     final db = await database;
     return await db.query(
@@ -113,7 +109,6 @@ class FridayDatabase {
     );
   }
 
-  // Save conversation message
   static Future<void> saveConversation({
     required String role,
     required String message,
@@ -126,8 +121,8 @@ class FridayDatabase {
     });
   }
 
-  // Get recent conversation history
-  static Future<List<Map<String, dynamic>>> getRecentConversations({int limit = 10}) async {
+  static Future<List<Map<String, dynamic>>> getRecentConversations(
+      {int limit = 10}) async {
     final db = await database;
     return await db.query(
       'conversations',
@@ -136,17 +131,16 @@ class FridayDatabase {
     );
   }
 
-  // Build full memory context for Friday
   static Future<String> buildMemoryContext() async {
     final buffer = StringBuffer();
     final now = DateTime.now();
 
-    // Recent locations
     final locations = await getRecentLocations();
     if (locations.isNotEmpty) {
       buffer.writeln('LOCATION HISTORY:');
       for (final loc in locations.take(5)) {
-        final time = loc['timestamp'].toString().substring(0, 16).replaceAll('T', ' ');
+        final time =
+            loc['timestamp'].toString().substring(0, 16).replaceAll('T', ' ');
         final address = loc['address']?.isNotEmpty == true
             ? loc['address']
             : '${loc['latitude']}, ${loc['longitude']}';
@@ -155,18 +149,17 @@ class FridayDatabase {
       buffer.writeln();
     }
 
-    // Recent memories
     final memories = await getRecentMemories();
     if (memories.isNotEmpty) {
       buffer.writeln('PERSONAL NOTES:');
       for (final mem in memories.take(5)) {
-        final time = mem['timestamp'].toString().substring(0, 16).replaceAll('T', ' ');
+        final time =
+            mem['timestamp'].toString().substring(0, 16).replaceAll('T', ' ');
         buffer.writeln('- [${mem['type']}] $time: ${mem['content']}');
       }
       buffer.writeln();
     }
 
-    // Recent conversations
     final convos = await getRecentConversations(limit: 6);
     if (convos.isNotEmpty) {
       buffer.writeln('RECENT CONVERSATION:');
@@ -181,5 +174,15 @@ class FridayDatabase {
     buffer.writeln('Current time: ${now.toString().substring(0, 16)}');
 
     return buffer.toString();
+  }
+
+  static Future<void> deleteMemory(int id) async {
+    final db = await database;
+    await db.delete('memories', where: 'id = ?', whereArgs: [id]);
+  }
+
+  static Future<void> deleteLocation(int id) async {
+    final db = await database;
+    await db.delete('locations', where: 'id = ?', whereArgs: [id]);
   }
 }

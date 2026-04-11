@@ -301,9 +301,16 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           {
             'role': 'system',
             'content':
-                '''You are Friday, a personal AI assistant. You know everything about your user from their data below. Use this context naturally in your responses. Call the user "boss". Be helpful, informal and friendly like Iron Man\'s Friday.
+                '''You are Friday, a personal AI assistant and friend. Call the user "boss". Be casual, fun, informal like Iron Man\'s Friday.
 
-PERSONAL DATA:
+IMPORTANT RULES:
+- Only mention location or personal data if the user ASKS about it
+- Do NOT bring up location or notes in every reply
+- Just chat naturally like a friend
+- Keep responses concise
+- Only use the personal data below when directly relevant to what boss asked
+
+PERSONAL DATA (use only when relevant):
 $memoryContext'''
           },
           {'role': 'user', 'content': userMessage}
@@ -405,10 +412,93 @@ $memoryContext'''
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         side: BorderSide(color: Color(0xFF00D4FF22)),
       ),
-      builder: (_) => _buildBottomSheet(
-        title: 'MEMORIES',
-        items: memories.map((m) => '${m['content']}').toList(),
-        emptyText: 'No memories yet. Add some!',
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('MEMORIES',
+                style: TextStyle(
+                    color: Color(0xFF00D4FF),
+                    fontSize: 12,
+                    letterSpacing: 4,
+                    fontFamily: 'monospace')),
+            const SizedBox(height: 4),
+            Container(height: 1, color: const Color(0xFF00D4FF22)),
+            const SizedBox(height: 4),
+            const Text('Long press to delete',
+                style: TextStyle(
+                    color: Color(0xFF00D4FF44),
+                    fontSize: 10,
+                    fontFamily: 'monospace')),
+            const SizedBox(height: 8),
+            Expanded(
+              child: memories.isEmpty
+                  ? const Center(
+                      child: Text('No memories yet. Add some!',
+                          style: TextStyle(
+                              color: Color(0xFF00D4FF44),
+                              fontFamily: 'monospace')))
+                  : ListView.builder(
+                      itemCount: memories.length,
+                      itemBuilder: (_, i) {
+                        final memory = memories[i];
+                        return GestureDetector(
+                          onLongPress: () async {
+                            await FridayDatabase.deleteMemory(memory['id']);
+                            Navigator.pop(context);
+                            _loadStats();
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Memory deleted, boss.',
+                                      style:
+                                          TextStyle(fontFamily: 'monospace')),
+                                  backgroundColor: Color(0xFF0D0D1A),
+                                ),
+                              );
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: const BoxDecoration(
+                              border: Border(
+                                  bottom: BorderSide(
+                                      color: Color(0xFF00D4FF11))),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  margin: const EdgeInsets.only(
+                                      top: 6, right: 10),
+                                  width: 5,
+                                  height: 5,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF00D4FF),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    '${memory['content']}',
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontFamily: 'monospace'),
+                                  ),
+                                ),
+                                const Icon(Icons.delete_outline,
+                                    color: Color(0xFF00D4FF33), size: 16),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -584,7 +674,8 @@ $memoryContext'''
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -640,7 +731,8 @@ $memoryContext'''
                         fontSize: 12)),
               ),
               if (_downloadProgress > 0)
-                Text('${(_downloadProgress * 100).toStringAsFixed(1)}%',
+                Text(
+                    '${(_downloadProgress * 100).toStringAsFixed(1)}%',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                         color: Color(0xFF00D4FF),
@@ -650,7 +742,8 @@ $memoryContext'''
             ],
 
             AnimatedBuilder(
-              animation: Listenable.merge([_pulseAnim, _plasmaAnim]),
+              animation:
+                  Listenable.merge([_pulseAnim, _plasmaAnim]),
               builder: (_, __) => CustomPaint(
                 painter: OrbPainter(
                   pulse: _pulseAnim.value,
@@ -690,40 +783,13 @@ $memoryContext'''
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 30),
               child: Row(
-  mainAxisAlignment: MainAxisAlignment.center,
-  children: [
-    _actionBtn('MEMORIES', _showMemories),
-    const SizedBox(width: 8),
-    _actionBtn('LOCATIONS', _showLocations),
-    const SizedBox(width: 8),
-    _actionBtn('+ NOTE', _showNoteDialog),
-    const SizedBox(width: 8),
-    _actionBtn('TEST NOTIF', () async {
-  try {
-    await NotificationService.sendAITestNotification();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Friday is thinking of something to say...',
-              style: TextStyle(fontFamily: 'monospace')),
-          backgroundColor: Color(0xFF0D0D1A),
-        ),
-      );
-    }
-  } catch (e) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e',
-              style: const TextStyle(fontFamily: 'monospace')),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-}),
-  ],
-),
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _statChip('24%', 'TRAINED'),
+                  _statChip('$_locationCount', 'LOCATIONS'),
+                  _statChip('$_messageCount', 'MEMORIES'),
+                ],
+              ),
             ),
 
             const SizedBox(height: 10),
@@ -811,8 +877,8 @@ $memoryContext'''
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
               decoration: const BoxDecoration(
                 color: Color(0xFF080810),
-                border:
-                    Border(top: BorderSide(color: Color(0xFF00D4FF11))),
+                border: Border(
+                    top: BorderSide(color: Color(0xFF00D4FF11))),
               ),
               child: Column(
                 children: [
@@ -873,6 +939,34 @@ $memoryContext'''
                       _actionBtn('LOCATIONS', _showLocations),
                       const SizedBox(width: 8),
                       _actionBtn('+ NOTE', _showNoteDialog),
+                      const SizedBox(width: 8),
+                      _actionBtn('TEST NOTIF', () async {
+                        try {
+                          await NotificationService.sendAITestNotification();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                    'Friday is thinking of something to say...',
+                                    style:
+                                        TextStyle(fontFamily: 'monospace')),
+                                backgroundColor: Color(0xFF0D0D1A),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Error: $e',
+                                    style: const TextStyle(
+                                        fontFamily: 'monospace')),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+                      }),
                     ],
                   ),
                 ],
