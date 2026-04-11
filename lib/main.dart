@@ -698,12 +698,30 @@ $memoryContext'''
     const SizedBox(width: 8),
     _actionBtn('+ NOTE', _showNoteDialog),
     const SizedBox(width: 8),
-    _actionBtn('TEST NOTIF', () {
-      NotificationService.sendInstantNotification(
-        title: 'FRIDAY',
-        body: 'Boss I am alive and watching you!',
+    _actionBtn('TEST NOTIF', () async {
+  try {
+    await NotificationService.sendAITestNotification();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Friday is thinking of something to say...',
+              style: TextStyle(fontFamily: 'monospace')),
+          backgroundColor: Color(0xFF0D0D1A),
+        ),
       );
-    }),
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e',
+              style: const TextStyle(fontFamily: 'monospace')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+}),
   ],
 ),
             ),
